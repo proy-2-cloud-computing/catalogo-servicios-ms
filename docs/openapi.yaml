@@ -1,0 +1,208 @@
+openapi: 3.0.3
+info:
+  title: ITSM Catalogo de Servicios API
+  version: 1.0.0
+  description: >
+    Catalogo de servicios solicitables por tenant. Todos los endpoints requieren
+    un ID token de Cognito en el header Authorization (sin "Bearer"). El tenant
+    se obtiene del claim `custom:tenant_id`; nunca se envia en el body ni en la
+    ruta. Crear, editar y listar inactivos requiere el grupo `admin`.
+servers:
+  - url: https://ypm1u1vp05.execute-api.us-east-1.amazonaws.com/dev
+    description: dev (cuenta del proyecto)
+security:
+  - idToken: []
+tags:
+  - name: Catalogo
+paths:
+  /catalogo:
+    get:
+      tags: [Catalogo]
+      summary: Listar servicios del tenant (activos por defecto)
+      operationId: listarServicios
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
+        - name: next
+          in: query
+          description: Token opaco devuelto por la pagina anterior.
+          schema: { type: string }
+        - name: estado
+          in: query
+          description: "`inactivo` y `todos` solo para admin."
+          schema: { type: string, enum: [activo, inactivo, todos], default: activo }
+        - name: categoria
+          in: query
+          description: Filtro opcional (una pagina puede traer menos de `limit` items; seguir `next`).
+          schema: { $ref: '#/components/schemas/Categoria' }
+      responses:
+        '200':
+          description: Pagina de servicios
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Pagina' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/NoAutorizado' }
+        '403': { $ref: '#/components/responses/Error' }
+    post:
+      tags: [Catalogo]
+      summary: Crear servicio (admin)
+      operationId: crearServicio
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ServicioCrear' }
+            example:
+              nombre: Acceso VPN
+              descripcion: Alta de acceso remoto por VPN
+              categoria: acceso
+              sla_horas: 48
+              requiere_aprobacion: true
+              equipo_responsable: Redes
+              costo_estimado: 0
+      responses:
+        '201':
+          description: Servicio creado (ID generado con el contador del tenant)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Servicio' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/NoAutorizado' }
+        '403': { $ref: '#/components/responses/Error' }
+  /catalogo/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: "ID URL-encoded: `SVC%23000012` (tambien `SVC-000012`)."
+        schema: { type: string, example: 'SVC%23000012' }
+    get:
+      tags: [Catalogo]
+      summary: Detalle de un servicio (lo consume Solicitudes)
+      operationId: obtenerServicio
+      description: Un servicio inactivo se devuelve con `activo=false`.
+      responses:
+        '200':
+          description: Servicio
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Servicio' }
+        '401': { $ref: '#/components/responses/NoAutorizado' }
+        '404':
+          description: No existe o pertenece a otro tenant
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+    put:
+      tags: [Catalogo]
+      summary: Actualizar parcialmente o desactivar (admin)
+      operationId: actualizarServicio
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ServicioActualizar' }
+            examples:
+              desactivar: { value: { activo: false } }
+              cambiarSla: { value: { sla_horas: 24, costo_estimado: 150 } }
+      responses:
+        '200':
+          description: Servicio actualizado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Servicio' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/NoAutorizado' }
+        '403': { $ref: '#/components/responses/Error' }
+        '404':
+          description: No existe o pertenece a otro tenant (no se crea nada)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+components:
+  securitySchemes:
+    idToken:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: ID token de Cognito (User Pool de itsm-base), sin prefijo Bearer.
+  responses:
+    Error:
+      description: Error de negocio
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NoAutorizado:
+      description: Sin token o token invalido (lo responde API Gateway, con CORS)
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              message: { type: string, example: Unauthorized }
+  schemas:
+    Categoria:
+      type: string
+      enum: [acceso, hardware, software, soporte, otro]
+    Servicio:
+      type: object
+      required: [servicio_id, tenant_id, nombre, categoria, sla_horas, requiere_aprobacion, activo, estado]
+      properties:
+        servicio_id: { type: string, example: 'SVC#000012' }
+        tenant_id: { type: string, example: empresa-beta }
+        nombre: { type: string, example: Acceso VPN }
+        descripcion: { type: string }
+        categoria: { $ref: '#/components/schemas/Categoria' }
+        sla_horas: { type: integer, minimum: 1, example: 48 }
+        requiere_aprobacion: { type: boolean }
+        equipo_responsable: { type: string, example: Redes }
+        costo_estimado: { type: number, minimum: 0 }
+        activo: { type: boolean }
+        estado: { type: string, enum: [activo, inactivo] }
+        creado_en: { type: string, format: date-time }
+        actualizado_en: { type: string, format: date-time }
+    ServicioCrear:
+      type: object
+      required: [nombre, categoria, sla_horas, equipo_responsable]
+      properties:
+        nombre: { type: string, minLength: 3, maxLength: 120 }
+        descripcion: { type: string, maxLength: 1000, default: '' }
+        categoria: { $ref: '#/components/schemas/Categoria' }
+        sla_horas: { type: integer, minimum: 1, maximum: 8760 }
+        requiere_aprobacion: { type: boolean, default: false }
+        equipo_responsable: { type: string, minLength: 2, maxLength: 80 }
+        costo_estimado: { type: number, minimum: 0, maximum: 10000000, default: 0 }
+        activo: { type: boolean, default: true }
+    ServicioActualizar:
+      type: object
+      minProperties: 1
+      description: Cualquier subconjunto de los campos editables. `estado` (activo|inactivo) se acepta como alias de `activo`.
+      properties:
+        nombre: { type: string, minLength: 3, maxLength: 120 }
+        descripcion: { type: string, maxLength: 1000 }
+        categoria: { $ref: '#/components/schemas/Categoria' }
+        sla_horas: { type: integer, minimum: 1, maximum: 8760 }
+        requiere_aprobacion: { type: boolean }
+        equipo_responsable: { type: string, minLength: 2, maxLength: 80 }
+        costo_estimado: { type: number, minimum: 0 }
+        activo: { type: boolean }
+        estado: { type: string, enum: [activo, inactivo] }
+    Pagina:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Servicio' }
+        count: { type: integer }
+        next: { type: string, nullable: true }
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { type: string, example: NO_ENCONTRADO }
+            message: { type: string }
+            detalle: {}

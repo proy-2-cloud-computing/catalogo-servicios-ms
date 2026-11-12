@@ -1,0 +1,666 @@
+{
+  "info": {
+    "name": "ITSM Catalogo de Servicios",
+    "description": "Pruebas del microservicio itsm-catalogo. Pega en las variables de la coleccion los ID tokens (python ../itsm-base/scripts/obtener_token.py --email <usuario> --password <clave>). Ejecuta en orden: la request 08 guarda el ID creado que usan las 09 a 14.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "01 Sin token -> 401 (con CORS)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/catalogo",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "catalogo"
+          ]
+        },
+        "description": "Lo responde el authorizer de Cognito; el GatewayResponse agrega CORS."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('401', () => pm.response.to.have.status(401));",
+              "pm.test('CORS presente', () => pm.expect(pm.response.headers.get('Access-Control-Allow-Origin')).to.eql('*'));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 Listar activos (solicitante alfa)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "{{idTokenSolicitanteAlfa}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/catalogo?limit=5",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "catalogo"
+          ],
+          "query": [
+            {
+              "key": "limit",
+              "value": "5"
+            }
+          ]
+        },
+        "description": ""
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('200', () => pm.response.to.have.status(200));",
+              "const d = pm.response.json();",
+              "pm.test('5 items activos del tenant alfa', () => { pm.expect(d.items.length).to.eql(5); d.items.forEach(s => { pm.expect(s.tenant_id).to.eql('empresa-alfa'); pm.expect(s.activo).to.eql(true); }); });",
+              "pm.test('trae next', () => pm.expect(d.next).to.be.a('string'));",
+              "pm.collectionVariables.set('nextToken', d.next);",
+              "pm.test('CORS presente', () => pm.expect(pm.response.headers.get('Access-Control-Allow-Origin')).to.eql('*'));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 Siguiente pagina (next)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "{{idTokenSolicitanteAlfa}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/catalogo?limit=5&next={{nextToken}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "catalogo"
+          ],
+          "query": [
+            {
+              "key": "limit",
+              "value": "5"
+            },
+            {
+              "key": "next",
+              "value": "{{nextToken}}"
+            }
+          ]
+        },
+        "description": ""
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('200', () => pm.response.to.have.status(200));",
+              "pm.test('items de alfa', () => pm.response.json().items.forEach(s => pm.expect(s.tenant_id).to.eql('empresa-alfa')));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 Detalle SVC#000003 (alfa)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "{{idTokenSolicitanteAlfa}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/catalogo/SVC%23000003",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "catalogo",
+            "SVC%23000003"
+          ]
+        },
+        "description": "Mismo endpoint que consume Solicitudes al crear una solicitud."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('200', () => pm.response.to.have.status(200));",
+              "const s = pm.response.json();",
+              "pm.test('contrato para Solicitudes', () => { pm.expect(s.servicio_id).to.eql('SVC#000003'); pm.expect(s.tenant_id).to.eql('empresa-alfa'); pm.expect(s.sla_horas).to.be.a('number'); pm.expect(s.requiere_aprobacion).to.be.a('boolean'); pm.expect(s.nombre).to.be.a('string'); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "05 Detalle SVC#000003 (beta) -> su propio servicio",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "{{idTokenAdminBeta}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/catalogo/SVC%23000003",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "catalogo",
+            "SVC%23000003"
+          ]
+        },
+        "description": "Los IDs son consecutivos por tenant: el mismo ID existe en cada tenant con datos distintos."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('200 y tenant beta', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().tenant_id).to.eql('empresa-beta'); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "06 Crear como solicitante -> 403",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "{{idTokenSolicitanteAlfa}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/catalogo",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "catalogo"
+          ]
+        },
+        "description": "",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"nombre\": \"Acceso a red Wi-Fi de invitados\",\n  \"descripcion\": \"Credenciales temporales para visitantes\",\n  \"categoria\": \"acceso\",\n  \"sla_horas\": 4,\n  \"requiere_aprobacion\": false,\n  \"equipo_responsable\": \"Redes\",\n  \"costo_estimado\": 0,\n  \"tenant_id\": \"empresa-beta\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('403 SIN_PERMISO', () => { pm.response.to.have.status(403); pm.expect(pm.response.json().error.code).to.eql('SIN_PERMISO'); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "07 Crear con body invalido -> 400",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "{{idTokenAdminAlfa}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/catalogo",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "catalogo"
+          ]
+        },
+        "description": "",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"nombre\": \"x\",\n  \"sla_horas\": -1,\n  \"categoria\": \"red\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('400 VALIDACION', () => { pm.response.to.have.status(400); pm.expect(pm.response.json().error.code).to.eql('VALIDACION'); });",
+              "pm.test('CORS presente', () => pm.expect(pm.response.headers.get('Access-Control-Allow-Origin')).to.eql('*'));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "08 Crear como admin alfa (tenant_id del body se ignora)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "{{idTokenAdminAlfa}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/catalogo",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "catalogo"
+          ]
+        },
+        "description": "",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"nombre\": \"Acceso a red Wi-Fi de invitados\",\n  \"descripcion\": \"Credenciales temporales para visitantes\",\n  \"categoria\": \"acceso\",\n  \"sla_horas\": 4,\n  \"requiere_aprobacion\": false,\n  \"equipo_responsable\": \"Redes\",\n  \"costo_estimado\": 0,\n  \"tenant_id\": \"empresa-beta\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('201', () => pm.response.to.have.status(201));",
+              "const s = pm.response.json();",
+              "pm.test('creado en alfa (tenant del token)', () => pm.expect(s.tenant_id).to.eql('empresa-alfa'));",
+              "pm.collectionVariables.set('servicioId', s.servicio_id);",
+              "pm.collectionVariables.set('servicioIdEnc', encodeURIComponent(s.servicio_id));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "09 AISLAMIENTO: beta pide el ID creado en alfa -> 404",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "{{idTokenAdminBeta}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/catalogo/{{servicioIdEnc}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "catalogo",
+            "{{servicioIdEnc}}"
+          ]
+        },
+        "description": "Prueba de aislamiento obligatoria: el ID solo existe en empresa-alfa."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('404 NO_ENCONTRADO', () => { pm.response.to.have.status(404); pm.expect(pm.response.json().error.code).to.eql('NO_ENCONTRADO'); });",
+              "pm.test('CORS presente', () => pm.expect(pm.response.headers.get('Access-Control-Allow-Origin')).to.eql('*'));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "10 AISLAMIENTO: beta intenta desactivar el ID de alfa -> 404",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "{{idTokenAdminBeta}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/catalogo/{{servicioIdEnc}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "catalogo",
+            "{{servicioIdEnc}}"
+          ]
+        },
+        "description": "",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"activo\": false\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('404', () => pm.response.to.have.status(404));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "11 Desactivar (admin alfa)",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "{{idTokenAdminAlfa}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/catalogo/{{servicioIdEnc}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "catalogo",
+            "{{servicioIdEnc}}"
+          ]
+        },
+        "description": "",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"activo\": false\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('200 inactivo', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().estado).to.eql('inactivo'); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "12 Listar inactivos como solicitante -> 403",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "{{idTokenSolicitanteAlfa}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/catalogo?estado=inactivo",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "catalogo"
+          ],
+          "query": [
+            {
+              "key": "estado",
+              "value": "inactivo"
+            }
+          ]
+        },
+        "description": ""
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('403', () => pm.response.to.have.status(403));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "13 Listar inactivos como admin",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "{{idTokenAdminAlfa}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/catalogo?estado=inactivo",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "catalogo"
+          ],
+          "query": [
+            {
+              "key": "estado",
+              "value": "inactivo"
+            }
+          ]
+        },
+        "description": ""
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('incluye el desactivado', () => pm.expect(pm.response.json().items.map(s => s.servicio_id)).to.include(pm.collectionVariables.get('servicioId')));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "14 Reactivar y editar SLA (admin alfa)",
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "{{idTokenAdminAlfa}}"
+          },
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/catalogo/{{servicioIdEnc}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "catalogo",
+            "{{servicioIdEnc}}"
+          ]
+        },
+        "description": "",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"activo\": true,\n  \"sla_horas\": 8\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('200 activo, sla 8', () => { const s = pm.response.json(); pm.response.to.have.status(200); pm.expect(s.estado).to.eql('activo'); pm.expect(s.sla_horas).to.eql(8); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "15 Filtrar por categoria",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "{{idTokenSolicitanteAlfa}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/catalogo?categoria=hardware&limit=50",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "catalogo"
+          ],
+          "query": [
+            {
+              "key": "categoria",
+              "value": "hardware"
+            },
+            {
+              "key": "limit",
+              "value": "50"
+            }
+          ]
+        },
+        "description": ""
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('solo hardware', () => pm.response.json().items.forEach(s => pm.expect(s.categoria).to.eql('hardware')));"
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "https://ypm1u1vp05.execute-api.us-east-1.amazonaws.com/dev"
+    },
+    {
+      "key": "idTokenAdminAlfa",
+      "value": ""
+    },
+    {
+      "key": "idTokenSolicitanteAlfa",
+      "value": ""
+    },
+    {
+      "key": "idTokenAdminBeta",
+      "value": ""
+    },
+    {
+      "key": "nextToken",
+      "value": ""
+    },
+    {
+      "key": "servicioId",
+      "value": ""
+    },
+    {
+      "key": "servicioIdEnc",
+      "value": ""
+    }
+  ]
+}

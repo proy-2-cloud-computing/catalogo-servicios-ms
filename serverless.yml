@@ -1,0 +1,176 @@
+service: itsm-catalogo
+
+frameworkVersion: '4'
+
+# ---------------------------------------------------------------------------
+# Microservicio Catalogo de Servicios - Plataforma ITSM Grupo 6
+#
+# Define los servicios que los usuarios pueden solicitar (SLA, aprobacion,
+# equipo responsable, costo). Solicitudes lo consulta por API:
+#   GET {ApiUrl}/catalogo/{servicio_id}  reenviando el ID token del usuario.
+#
+# Depende solo de itsm-base (Cognito). No consulta a ningun otro servicio.
+# Orden: desplegar itsm-base primero, en el mismo stage y region.
+# ---------------------------------------------------------------------------
+
+custom:
+  base: itsm-base-${self:provider.stage}
+  # Mismo authorizer de Cognito (ID token) en todos los endpoints.
+  authorizer:
+    name: cognitoAuth
+    type: COGNITO_USER_POOLS
+    arn: ${cf:${self:custom.base}.UserPoolArn}
+
+provider:
+  name: aws
+  runtime: python3.12
+  region: ${opt:region, 'us-east-1'}
+  stage: ${opt:stage, 'dev'}
+  memorySize: 256
+  timeout: 10
+  logRetentionInDays: 14
+  # AWS Academy: las Lambdas usan el rol existente del laboratorio.
+  # En una cuenta normal, elimina este bloque y usa iam.role.statements
+  # (ver el comentario al final del archivo).
+  iam:
+    role: arn:aws:iam::${aws:accountId}:role/LabRole
+  stackTags:
+    Proyecto: ITSM-Grupo6
+    Componente: catalogo
+  environment:
+    TABLE: ${self:service}-${self:provider.stage}
+    LOG_LEVEL: INFO
+
+package:
+  patterns:
+    - '!**'
+    - 'src/**'
+    - '!**/__pycache__/**'
+    - '!**/*.pyc'
+
+functions:
+  crear:
+    handler: src/handlers/crear.handler
+    description: Crea un servicio en el catalogo del tenant (rol admin)
+    events:
+      - http:
+          path: catalogo
+          method: post
+          cors: true
+          authorizer: ${self:custom.authorizer}
+
+  listar:
+    handler: src/handlers/listar.handler
+    description: Lista servicios activos del tenant (paginado, sin Scan)
+    events:
+      - http:
+          path: catalogo
+          method: get
+          cors: true
+          authorizer: ${self:custom.authorizer}
+
+  obtener:
+    handler: src/handlers/obtener.handler
+    description: Detalle de un servicio (lo consume Solicitudes)
+    events:
+      - http:
+          path: catalogo/{id}
+          method: get
+          cors: true
+          authorizer: ${self:custom.authorizer}
+
+  actualizar:
+    handler: src/handlers/actualizar.handler
+    description: Actualiza o desactiva un servicio (rol admin)
+    events:
+      - http:
+          path: catalogo/{id}
+          method: put
+          cors: true
+          authorizer: ${self:custom.authorizer}
+
+resources:
+  Resources:
+    # -------------------------------------------------------------- DynamoDB
+    CatalogoTable:
+      Type: AWS::DynamoDB::Table
+      # Conserva los datos si se elimina el stack.
+      DeletionPolicy: Retain
+      UpdateReplacePolicy: Retain
+      Properties:
+        TableName: ${self:provider.environment.TABLE}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - { AttributeName: tenant_id, AttributeType: S }
+          - { AttributeName: sk, AttributeType: S }
+          - { AttributeName: estado_fecha, AttributeType: S }
+        KeySchema:
+          - { AttributeName: tenant_id, KeyType: HASH }
+          # SVC#000123 o CONTADOR#SVC
+          - { AttributeName: sk, KeyType: RANGE }
+        GlobalSecondaryIndexes:
+          # Indice disperso: solo los servicios llevan estado_fecha
+          # (activo#creado_en | inactivo#creado_en). El contador no entra.
+          - IndexName: GSI1
+            KeySchema:
+              - { AttributeName: tenant_id, KeyType: HASH }
+              - { AttributeName: estado_fecha, KeyType: RANGE }
+            Projection: { ProjectionType: ALL }
+        Tags:
+          - { Key: Proyecto, Value: ITSM-Grupo6 }
+
+    # ----------------------- CORS tambien en errores generados por API Gateway
+    # (401 del authorizer, 403 de ruta inexistente, 5xx de integracion).
+    GatewayResponseDefault4XX:
+      Type: AWS::ApiGateway::GatewayResponse
+      Properties:
+        ResponseType: DEFAULT_4XX
+        RestApiId: !Ref ApiGatewayRestApi
+        ResponseParameters:
+          gatewayresponse.header.Access-Control-Allow-Origin: "'*'"
+          gatewayresponse.header.Access-Control-Allow-Headers: "'Content-Type,Authorization'"
+
+    GatewayResponseDefault5XX:
+      Type: AWS::ApiGateway::GatewayResponse
+      Properties:
+        ResponseType: DEFAULT_5XX
+        RestApiId: !Ref ApiGatewayRestApi
+        ResponseParameters:
+          gatewayresponse.header.Access-Control-Allow-Origin: "'*'"
+          gatewayresponse.header.Access-Control-Allow-Headers: "'Content-Type,Authorization'"
+
+  Outputs:
+    ApiUrl:
+      Description: URL base del API del catalogo (CATALOGO_URL de Solicitudes y variable de Amplify)
+      Value: !Sub 'https://${ApiGatewayRestApi}.execute-api.${AWS::Region}.amazonaws.com/${self:provider.stage}'
+      Export:
+        Name: !Sub 'itsm-${self:provider.stage}-CatalogoApiUrl'
+
+    TableName:
+      Description: Nombre de la tabla DynamoDB del catalogo
+      Value: !Ref CatalogoTable
+      Export:
+        Name: !Sub 'itsm-${self:provider.stage}-CatalogoTableName'
+
+    TableArn:
+      Description: ARN de la tabla DynamoDB del catalogo
+      Value: !GetAtt CatalogoTable.Arn
+      Export:
+        Name: !Sub 'itsm-${self:provider.stage}-CatalogoTableArn'
+
+# ---------------------------------------------------------------------------
+# Permisos que necesita el rol de las Lambdas (si NO usas LabRole):
+#
+#   iam:
+#     role:
+#       statements:
+#         - Effect: Allow
+#           Action:
+#             - dynamodb:GetItem
+#             - dynamodb:PutItem
+#             - dynamodb:UpdateItem
+#             - dynamodb:Query
+#           Resource:
+#             - !GetAtt CatalogoTable.Arn
+#             - !Sub '${CatalogoTable.Arn}/index/*'
+# ---------------------------------------------------------------------------
