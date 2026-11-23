@@ -162,9 +162,20 @@ def main():
     comprobar("GET por ID de un inactivo -> 200 con activo=false", por_id["activo"] is False)
     estado, _, _ = llamar("GET", f"{api}/catalogo?estado=inactivo", tok["solic_alfa"])
     comprobar("GET ?estado=inactivo como solicitante -> 403", estado == 403)
-    _, _, inactivos = llamar("GET", f"{api}/catalogo?estado=inactivo", tok["admin_alfa"])
-    comprobar("GET ?estado=inactivo como admin -> incluye el desactivado",
-              any(s["servicio_id"] == creado["servicio_id"] for s in inactivos["items"]))
+    encontrado = False
+    siguiente = None
+    while True:
+        url = f"{api}/catalogo?estado=inactivo&limit=100"
+        if siguiente:
+            url += f"&next={siguiente}"
+        _, _, pagina = llamar("GET", url, tok["admin_alfa"])
+        if any(s["servicio_id"] == creado["servicio_id"] for s in pagina["items"]):
+            encontrado = True
+            break
+        siguiente = pagina.get("next")
+        if not siguiente:
+            break
+    comprobar("GET ?estado=inactivo como admin -> incluye el desactivado", encontrado)
     estado, _, cuerpo = llamar("PUT", f"{api}/catalogo/{sid}", tok["admin_alfa"], {"activo": True})
     comprobar("PUT reactivar -> 200 estado=activo", estado == 200 and cuerpo["estado"] == "activo")
 
